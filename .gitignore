@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+output/bot.exe
+output/settings.exe
+output/settings.txt
+settings.txt
