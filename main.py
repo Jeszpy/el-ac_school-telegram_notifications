@@ -1,12 +1,12 @@
+from ast import While
 from datetime import datetime, timedelta
-import time
+from re import T
 import fdb
 import telebot
-from multiprocessing import Process
+from multiprocessing import Process, freeze_support
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import  CallbackQuery, Message
-from aiogram.utils import executor
 from aiogram.dispatcher.filters import Text
 from aiogram_calendar import simple_cal_callback, SimpleCalendar
 
@@ -54,16 +54,18 @@ def location(parent):
         get_events = f"select * from events where datetime >= '{date}' and datetime < '{date_plus_day}' and param2 = {int(person)} and event_type = {23}"
         cur.execute(get_events)
         data = cur.fetchall()
-        data = data[-1][4]
+        if data == []:
+            return 'Сегодня на занятиях не был(а).'
+        else:
+            data = data[-1][4]
+            get_readers = f"select phys_addr from d5_readers where reader = {int(data)}"
+            cur.execute(get_readers)
+            reader = cur.fetchone()
 
-        get_readers = f"select phys_addr from d5_readers where reader = {int(data)}"
-        cur.execute(get_readers)
-        reader = cur.fetchone()
-
-        if reader[0] == 0:
-            return '🏫 В учебном учреждении 🏫'
-        else: return '🚶🚶‍♀️ Вне учебного учреждения 🚶‍♀️🚶'
-    except:
+            if reader[0] == 0:
+                return '🏫 В учебном учреждении 🏫'
+            else: return '🚶🚶‍♀️ Вне учебного учреждения 🚶‍♀️🚶'
+    except Exception as e:
         return '🙏 Извините, но вас не внесли в базу данных. 🙏'
         
 
@@ -172,64 +174,58 @@ async def process_simple_calendar(callback_query: CallbackQuery, callback_data: 
         await callback_query.message.answer(f'{data}', reply_markup = poll_keyboard)
 
 def listen_event():
-    try:
-        con = create_con()
-        cond = con.event_conduit(["d_new_event"])
-        cond.begin()
-        cond.wait()
-        select_num = "select max(num) as NUM from events"
-        cur = con.cursor()
-        cur.execute(select_num)
-        num = cur.fetchone()
-        select_event = f"select * from events where num = {int(num[0])}"
-        cur.execute(select_event)
-        get_event = cur.fetchone()
-        # если полученное событие == "проход по карте"
-        if get_event[3] == 23:
-            children_id = get_event[5]
-            event_time = get_event[1]
-            event_time = event_time.strftime("%H:%M:%S")
-            select_parent_id = f'select prop_value from user_props where user_num = {children_id}'
-            cur.execute(select_parent_id)
-            parent_id = cur.fetchone()
-            parent_id = parent_id[0].strip() # .replace(" ", "")
-            if parent_id == '':
-                return
-            else:
-                select_children_name = f'select username from users where num = {children_id}'
-                cur.execute(select_children_name)
-                children_name = cur.fetchone()
-                children_name = children_name[0]
+    while True:
+        try:
+            con = create_con()
+            cond = con.event_conduit(["d_new_event"])
+            cond.begin()
+            cond.wait()
+            select_num = "select max(num) as NUM from events"
+            cur = con.cursor()
+            cur.execute(select_num)
+            num = cur.fetchone()
+            select_event = f"select * from events where num = {int(num[0])}"
+            cur.execute(select_event)
+            get_event = cur.fetchone()
+            if get_event[3] == 23:
+                children_id = get_event[5]
+                event_time = get_event[1]
+                event_time = event_time.strftime("%H:%M:%S")
+                select_parent_id = f'select prop_value from user_props where user_num = {children_id}'
+                cur.execute(select_parent_id)
+                parent_id = cur.fetchone()
+                parent_id = parent_id[0].strip() # .replace(" ", "")
+                if parent_id == '':
+                    message = ''
+                else:
+                    select_children_name = f'select username from users where num = {children_id}'
+                    cur.execute(select_children_name)
+                    children_name = cur.fetchone()
+                    children_name = children_name[0]
 
-                reader = get_event[4]
-                select_reader = f'select read_name from d_devices where reader = {reader}'
-                cur.execute(select_reader)
-                reader = cur.fetchone()
-                reader = reader[0]
+                    reader = get_event[4]
+                    select_reader = f'select read_name from d_devices where reader = {reader}'
+                    cur.execute(select_reader)
+                    reader = cur.fetchone()
+                    reader = reader[0]
 
-                message = f'{event_time}   {children_name} прошел по карте доступа через {reader}'
-                tb.send_message(chat_id=parent_id, text=message)
-                return
-
-
-    except Exception as e:
-        pass
-    finally:
-        con.close()
-        pass
-
+                    message = f'{event_time}   {children_name} прошел по карте доступа через {reader}'
+                    tb.send_message(chat_id=parent_id, text=message)
+        except Exception as e:
+            pass
+        finally:
+            print('close con')
+            con.close()
+            pass
 
 
 def start_tg_observer():
     executor.start_polling(dp, skip_updates=True)
 
-def start_fb_observer():
-    while True:
-            listen_event()
-
 if __name__ == "__main__":
+    freeze_support()
     try:
         Process(target=start_tg_observer).start()
-        Process(target=start_fb_observer).start()
+        Process(target=listen_event).start()
     except Exception as e:
         pass

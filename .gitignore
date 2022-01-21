@@ -130,4 +130,7 @@ dmypy.json
 output/bot.exe
 output/settings.exe
 output/settings.txt
+output/
+ico/
 settings.txt
+output/thread.exe
